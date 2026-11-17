@@ -121,11 +121,11 @@ If you create a notebook to explore the data, select the Python environment crea
 
 Once you have implemented the project code, a typical local workflow looks like this:
 
-1. Train the model and log runs to the local `mlruns/` directory with MLflow.
+1. Train the model and log runs to MLflow (`uv run python -m src.train`, stored in `mlflow.db` + `mlruns/`).
 2. Start the tracking UI:
 
    ```bash
-   uv run mlflow ui --backend-store-uri ./mlruns --port 5000
+   uv run mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000
    ```
 
 3. Run the API locally:
