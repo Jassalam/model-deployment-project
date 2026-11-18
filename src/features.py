@@ -30,7 +30,7 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
             "trip_distance": df["trip_distance"].astype("float64"),
             "passenger_count": df["passenger_count"].fillna(1).astype("float64"),
             "pickup_hour": pickup.dt.hour.astype("int32"),
-            "pickup_dow": pickup.dt.dayofweek.astype("int32"),
+            "pickup_dow": pickup.dt.day_of_week.astype("int32"),
         },
         index=df.index,
     )

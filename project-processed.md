@@ -438,6 +438,45 @@ pass.
 
 ---
 
+## Notebook: EDA and Model Comparison
+
+**Goal:** make the exploration reviewable. Steps 1–3 were first done as one-off terminal
+commands, so nothing in the repo showed the exploration as a notebook.
+
+[notebooks/01_eda.ipynb](notebooks/01_eda.ipynb) is committed **with its outputs and
+7 charts saved**, so it can be read on GitHub without running it. It imports
+`src/data.py` and `src/features.py`, so it applies exactly the same cleaning and features
+as training.
+
+**Sections:**
+
+1. Raw data and missing values.
+2. Duration outliers and the 1–60 min rule.
+3. What drives duration: distance, hour, day of week, zones, passengers.
+4. Leakage check.
+5. Time split.
+6. Model comparison and Optuna trials, read live from `mlflow.db`.
+
+**How it was built and run:** a script wrote the notebook with `nbformat`, and it was
+executed with `uv run --with nbclient`. `nbclient` was used temporarily, so the project's
+dependencies didn't change. Run time is about 10 s.
+
+**New findings from the notebook:**
+
+- **Pearson correlation was misleading.** It reports fare vs duration as only 0.02,
+  because of 126,217 negative fares and one fare of $863,372. Spearman (rank) correlation
+  shows fare tracks duration *more* closely than distance does (0.87 vs 0.85). That is a
+  strong reason it would leak, and the notebook shows both measures.
+- **The Monday speed bump is MLK Day.** Monday Jan 20 had a median speed of 11.6 mph,
+  against 9.6–9.8 on the other Mondays and 9.2 for Tuesday–Friday. This is concrete
+  evidence for adding a holiday feature.
+
+**Small fix to `src/features.py`:** `dt.dayofweek` was replaced with `dt.day_of_week`,
+because pandas 3 has deprecated the old name. The values are identical, so the trained
+models are unaffected, and all 22 tests still pass.
+
+---
+
 ## Housekeeping
 
 - **Added to `.gitignore`:**

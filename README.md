@@ -27,6 +27,7 @@ flowchart LR
 |---|---|
 | [**Project Description**](project-description.md) | The assignment tasks, suggested workflow, repository layout, and stretch goals. |
 | [**Process Log**](project-processed.md) | Every step taken, with commands, decisions, problems hit and results. |
+| [**notebooks/01_eda.ipynb**](notebooks/01_eda.ipynb) | EDA (data quality, cleaning rules, drivers of duration, leakage check, MLK Day finding) and the model comparison read from MLflow. |
 | [**src/**](src/) | Data loading and cleaning (`data.py`), shared features (`features.py`), model loading (`model.py`), training (`train.py`), Optuna tuning (`tune.py`). |
 | [**app/**](app/) | FastAPI app (`main.py`) and request/response schemas (`schemas.py`). |
 | [**tests/**](tests/) | 22 pytest tests for the data, features, model and API. |
