@@ -9,6 +9,8 @@ import os
 
 os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
 
+from pathlib import Path  # noqa: E402
+
 import click  # noqa: E402
 import mlflow  # noqa: E402
 import numpy as np  # noqa: E402
@@ -69,7 +71,9 @@ def setup_mlflow() -> None:
 @click.option("--train-sample", default=500_000, show_default=True,
               help="Rows sampled from the training split (RF is slow on all 2.5M).")
 @click.option("--run-name", default="rf-baseline", show_default=True)
-def main(n_estimators, max_depth, min_samples_leaf, max_features, train_sample, run_name):
+@click.option("--output", default=str(DEFAULT_MODEL_PATH), show_default=True,
+              type=click.Path(path_type=Path), help="Where to save the trained model.")
+def main(n_estimators, max_depth, min_samples_leaf, max_features, train_sample, run_name, output):
     X_train, y_train, X_val, y_val = load_splits(train_sample)
     params = {"n_estimators": n_estimators, "max_depth": max_depth,
               "min_samples_leaf": min_samples_leaf, "max_features": max_features}
@@ -83,11 +87,12 @@ def main(n_estimators, max_depth, min_samples_leaf, max_features, train_sample, 
         rmse_mean = root_mean_squared_error(y_val, np.full_like(y_val, y_train.mean()))
         mlflow.log_metrics({"rmse_train": rmse_train, "rmse_val": rmse_val,
                             "rmse_val_mean_baseline": rmse_mean})
-        log_final_model(model)
+        log_final_model(model, output)
+        mlflow.log_metric("model_size_mb", output.stat().st_size / 1e6)
 
     click.echo(f"run_id={run.info.run_id}")
     click.echo(f"RMSE train={rmse_train:.3f}  val={rmse_val:.3f}  (mean baseline {rmse_mean:.3f})")
-    click.echo(f"Model saved to {DEFAULT_MODEL_PATH}")
+    click.echo(f"Model saved to {output} ({output.stat().st_size / 1e6:.0f} MB)")
 
 
 if __name__ == "__main__":
