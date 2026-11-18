@@ -10,7 +10,7 @@ import pandas as pd
 from fastapi import FastAPI
 
 from app.schemas import Prediction, Trip
-from src.model import MODEL_PATH, load_model, predict
+from src.model import load_model, model_path, predict
 
 state: dict = {}
 
@@ -18,8 +18,9 @@ state: dict = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load once at startup, not per request (the forest is ~240 MB).
-    state["model"] = load_model()
-    mtime = datetime.fromtimestamp(MODEL_PATH.stat().st_mtime, tz=timezone.utc)
+    path = model_path()
+    state["model"] = load_model(path)
+    mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
     state["version"] = f"rf-{mtime:%Y%m%d%H%M%S}"
     yield
     state.clear()
