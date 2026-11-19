@@ -524,6 +524,10 @@ problem is described in full in [errors-and-solutions.md](errors-and-solutions.m
 | `2025-01-27` (no time) | 200, 10.82 ❌ | **422** ✅ |
 | `pytest` run from `notebooks/` | crashed ❌ | **33 passed** ✅ |
 
+> **Note:** 13.41 is the v1 model's prediction. After the step 2 retraining, the served v2
+> model gives **12.85** for both `08:30Z` and `03:30` New York time. The check is that the
+> two values match, not the exact number.
+
 **Not changed yet:** the model itself. Items 2.4 and 2.5 change the training data, and are
 handled in step 2 with retraining.
 

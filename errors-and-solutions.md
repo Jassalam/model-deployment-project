@@ -343,6 +343,8 @@ lists how it was found, its impact, and its solution.
 > `test_utc_conversion_can_change_the_day`, and
 > `test_utc_pickup_is_converted_to_new_york_time` (API). With the real model,
 > `08:30Z` now returns **13.41**, the same as `03:30` New York time.
+> *(13.41 is the v1 model's value. The retrained v2 model, see 2.4, gives **12.85** for
+> both. What matters is that the two values match.)*
 
 **How it was found:** sending the same trip with different time formats.
 
