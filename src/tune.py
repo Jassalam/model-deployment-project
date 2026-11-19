@@ -14,7 +14,6 @@ import os
 os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
 
 import time  # noqa: E402
-from pathlib import Path  # noqa: E402
 
 import click  # noqa: E402
 import mlflow  # noqa: E402
@@ -23,10 +22,12 @@ import pandas as pd  # noqa: E402
 
 from src.data import clean, load_raw, split  # noqa: E402
 from src.features import FEATURES, prepare_features  # noqa: E402
-from src.train import SEED, fit_and_score, log_final_model, setup_mlflow  # noqa: E402
+from src.paths import ARTIFACTS_DIR  # noqa: E402
+from src.evaluate import segment_metrics  # noqa: E402
+from src.train import SEED, cleaning_params, fit_and_score, log_final_model, setup_mlflow  # noqa: E402
 
 INNER_SPLIT_DATE = pd.Timestamp("2025-01-18")
-TUNED_MODEL_PATH = Path("artifacts/model_tuned.skops")
+TUNED_MODEL_PATH = ARTIFACTS_DIR / "model_tuned.skops"
 
 
 def search_space(trial: optuna.Trial) -> dict:
@@ -87,7 +88,8 @@ def main(n_trials, tune_sample, train_sample):
         fit_seconds = time.perf_counter() - start
 
         mlflow.log_params({"train_rows": len(X_train), "val_rows": len(X_val),
-                           "features": ",".join(FEATURES)})
+                           "features": ",".join(FEATURES), **cleaning_params()})
+        mlflow.log_metrics(segment_metrics(y_val, model.predict(X_val), X_val["trip_distance"]))
         mlflow.log_metrics({"rmse_train": rmse_train, "rmse_val": rmse_val,
                             "final_fit_seconds": fit_seconds})
         log_final_model(model, TUNED_MODEL_PATH)
