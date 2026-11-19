@@ -23,7 +23,9 @@ import skops.io as sio  # noqa: E402
 from sklearn.ensemble import RandomForestRegressor  # noqa: E402
 from sklearn.metrics import root_mean_squared_error  # noqa: E402
 
+from src import data  # noqa: E402
 from src.data import clean, load_raw, split  # noqa: E402
+from src.evaluate import segment_metrics  # noqa: E402
 from src.features import FEATURES, prepare_features  # noqa: E402
 from src.model import DEFAULT_MODEL_PATH  # noqa: E402
 from src.paths import MLFLOW_DB  # noqa: E402
@@ -66,6 +68,13 @@ def log_final_model(model: RandomForestRegressor, path=DEFAULT_MODEL_PATH) -> No
 EXPERIMENT_KIND = {"mlflow.experimentKind": "custom_model_development"}
 
 
+def cleaning_params() -> dict:
+    """The data-cleaning rules, logged with every run so results stay comparable."""
+    return {"min_duration": data.MIN_DURATION, "max_duration": data.MAX_DURATION,
+            "min_speed_mph": data.MIN_SPEED, "max_speed_mph": data.MAX_SPEED,
+            "max_distance": data.MAX_DISTANCE, "dedup": True}
+
+
 def setup_mlflow(tracking_uri: str = TRACKING_URI) -> None:
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(EXPERIMENT)
@@ -91,17 +100,21 @@ def main(n_estimators, max_depth, min_samples_leaf, max_features, train_sample, 
     setup_mlflow()
     with mlflow.start_run(run_name=run_name) as run:
         mlflow.log_params({**params, "random_state": SEED, "train_rows": len(X_train),
-                           "val_rows": len(X_val), "features": ",".join(FEATURES)})
+                           "val_rows": len(X_val), "features": ",".join(FEATURES),
+                           **cleaning_params()})
         model, rmse_train, rmse_val = fit_and_score(params, X_train, y_train, X_val, y_val)
+        segments = segment_metrics(y_val, model.predict(X_val), X_val["trip_distance"])
         # Reference point: always predicting the training mean.
         rmse_mean = root_mean_squared_error(y_val, np.full_like(y_val, y_train.mean()))
-        mlflow.log_metrics({"rmse_train": rmse_train, "rmse_val": rmse_val,
-                            "rmse_val_mean_baseline": rmse_mean})
+        mlflow.log_metrics({"rmse_train": rmse_train, "rmse_val_mean_baseline": rmse_mean,
+                            **segments})
         log_final_model(model, output)
         mlflow.log_metric("model_size_mb", output.stat().st_size / 1e6)
 
     click.echo(f"run_id={run.info.run_id}")
     click.echo(f"RMSE train={rmse_train:.3f}  val={rmse_val:.3f}  (mean baseline {rmse_mean:.3f})")
+    for k, v in segments.items():
+        click.echo(f"  {k:32s} {v:7.3f}")
     click.echo(f"Model saved to {output} ({output.stat().st_size / 1e6:.0f} MB)")
 
 

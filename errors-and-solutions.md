@@ -6,9 +6,9 @@ project, with its cause and the fix. The file has two parts:
 - **Part 1:** problems that came up during development. All of them are **resolved**
   unless marked otherwise.
 - **Part 2:** problems found in a later review that the original 22 tests did not catch.
-  The six code bugs are **resolved** on branch `fix/review-findings`, with 11 new tests
-  (33 in total). The two data problems (2.4, 2.5) and the notebook housekeeping item (2.9)
-  are still **open**.
+  **All nine are resolved** on branch `fix/review-findings`: six code bugs, two data
+  problems (with the model retrained), and one housekeeping item. There are 15 new tests,
+  37 in total.
 
 The step-by-step build history is in [project-processed.md](project-processed.md).
 
@@ -30,12 +30,12 @@ The step-by-step build history is in [project-processed.md](project-processed.md
 | 2.1 | Time-zone-aware pickup times give wrong predictions | API / features | ✅ Resolved |
 | 2.2 | Tests and API break when run from another folder | Paths | ✅ Resolved |
 | 2.3 | Default training command overwrites the served model with a worse one | Training | ✅ Resolved |
-| 2.4 | Trips over 60 min removed, so long trips are underestimated | Data / model | ❌ Open, modelling |
-| 2.5 | 52,533 duplicate rows not removed | Data | ❌ Open, modelling |
+| 2.4 | Trips over 60 min removed, so long trips are underestimated | Data / model | ✅ Resolved (retrained) |
+| 2.5 | 52,533 refund/reversal pairs counted as two trips | Data | ✅ Resolved (retrained) |
 | 2.6 | Date-only pickup time accepted silently as midnight | API validation | ✅ Resolved |
 | 2.7 | MLflow "model training" label set by hand, not in code | MLflow | ✅ Resolved |
 | 2.8 | Interrupted download leaves a corrupt data file | Data loading | ✅ Resolved |
-| 2.9 | Notebook generator script is not in the repo | Notebook | ❌ Open |
+| 2.9 | Notebook generator script is not in the repo | Notebook | ✅ Resolved |
 
 ---
 
@@ -332,8 +332,9 @@ Stop either one with **Ctrl+C**.
 All 22 original tests passed, but probing edge cases turned up the problems below. Each one
 lists how it was found, its impact, and its solution.
 
-- **Resolved** on branch `fix/review-findings`: 2.1, 2.2, 2.3, 2.6, 2.7, 2.8.
-- **Still open:** 2.4 and 2.5, which need retraining, and 2.9.
+- **Resolved** on branch `fix/review-findings`: all of 2.1–2.9.
+- 2.4 and 2.5 changed the training data, so the model was retrained and the reported RMSE
+  changed from 3.958 to **4.786**. See 2.4.
 
 ### 2.1 Time-zone-aware pickup times give wrong predictions (bug)
 
@@ -439,6 +440,43 @@ without noticing.
 
 ### 2.4 Trips over 60 min removed, so long trips are underestimated (modelling)
 
+> **Status: ✅ Resolved, model retrained.**
+>
+> **Applied:**
+> - `src/data.py` now keeps trips of **1–180 min** with an average speed of **1–65 mph**.
+>   The data showed 12,657 trips under 1 mph (meter or GPS errors) and 252 over 65 mph;
+>   trips over 60 min had a median speed of 14.8 mph, so most of them are real.
+> - A new `src/evaluate.py` logs RMSE overall, for trips up to and over 60 min, and by
+>   distance range, to MLflow for every run.
+> - Every run now also logs its cleaning rules.
+> - All three models (baseline, tuned, full data) were retrained. The full-data model is
+>   served; the old one was kept as `artifacts/model_v1_60min.skops`.
+>
+> **Result on the same validation trips (792,583, of which 7,847 are over 60 min):**
+>
+> | | v1, 1–60 min | v2, served |
+> |---|---|---|
+> | RMSE, all trips | 5.131 | **4.786** |
+> | RMSE, trips ≤ 60 min | **3.907** | 3.965 |
+> | RMSE, trips > 60 min | 33.65 | **27.23** |
+> | RMSE, trips of 20–100 mi | 18.11 | **13.43** |
+> | Highest prediction | 57.0 | 125.1 |
+> | 100-mile request | 53.55 (impossible) | 118.69 |
+>
+> **The headline RMSE changed from 3.958 to 4.786.** This is not a worse model: the
+> validation set now includes long trips. On the same trips the new model is 6.7% better.
+>
+> **Partly open:** trips over 60 min are still underestimated by about 20 min on average
+> (`bias_val_gt60min = −20.56`). The current features can't explain those delays. The
+> fix is new features (zone-pair history, holiday and weather flags), which is listed as
+> future work.
+>
+> **Not done:** limiting the API's `trip_distance`. The model now covers the API's
+> 0–100 mi range.
+>
+> Tests: `test_clean_keeps_long_real_trips`, `test_clean_drops_impossible_speeds` and
+> `test_segment_metrics_split_by_duration_and_distance`.
+
 **How it was found:** measuring the served model's error by distance on a 150,000-trip
 sample of the validation week, and counting what cleaning removed.
 
@@ -477,10 +515,28 @@ process log and the notebook afterwards.
 
 ---
 
-### 2.5 52,533 duplicate rows not removed (modelling)
+### 2.5 52,533 refund/reversal pairs counted as two trips (modelling)
+
+> **Status: ✅ Resolved, model retrained.**
+>
+> **Correction to the original finding:** these are **not exact duplicate rows**. The
+> original check only compared the 6 columns the model loads. Across all 20 columns,
+> **0 rows are identical**. The 52,533 extra rows are **refund or reversal records**: the
+> same trip recorded again with the fare negated (for example `+7.90` / `−7.90`), mostly
+> with payment types 4 (dispute) and 3 (no charge).
+>
+> **Applied:** `clean()` now keeps one row per trip
+> (`drop_duplicates(subset=RAW_COLUMNS)`). Time, zones, distance and passengers are
+> identical in both rows of a pair, so it doesn't matter which one is kept. The notebook
+> has a new cell that shows the pairs.
+>
+> Test: `test_clean_keeps_refund_pairs_once`. A pair counts as one trip, and two different
+> trips that start at the same second are both kept.
+>
+> *Original finding, kept for the record:*
 
 **How it was found:** `raw.duplicated().sum()` gives 52,533 identical rows, about 1.5% of
-the data.
+the data. *(This check only covered the 6 loaded columns; see the correction above.)*
 
 **Impact:** the split is by date and identical rows share the same pickup time, so nothing
 leaks between training and validation. Duplicated trips do get double weight in training
@@ -553,6 +609,17 @@ tmp.replace(path)
 
 ### 2.9 Notebook generator script is not in the repo
 
+> **Status: ✅ Resolved.** The second option was chosen: **the notebook is now its own
+> source.** The temporary generator script had already been deleted when the temporary
+> folder was cleared, so `notebooks/01_eda.ipynb` was edited directly for the v2 update.
+> Edits made:
+> - new cells for the speed check and refund pairs;
+> - the MLflow table now labels each run v1 or v2;
+> - a new section 7 compares v1 and v2 on the same trips;
+> - updated conclusions.
+>
+> The notebook was then re-run from start to finish with no errors or warnings.
+
 **Cause:** `notebooks/01_eda.ipynb` was written by a script kept in a temporary folder
 outside the project.
 
@@ -569,6 +636,7 @@ simpler.
 
 1. ✅ **Code bugs, which leave the model unchanged:** 2.1, 2.2, 2.3, 2.6, 2.7, 2.8. Done on
    branch `fix/review-findings`, with 11 new tests (33 in total).
-2. **Data changes, which require retraining:** 2.4 and 2.5 together. Then update the
-   RMSE in the README, `project-processed.md` and the notebook.
-3. **Housekeeping:** 2.9.
+2. ✅ **Data changes, which require retraining:** 2.4 and 2.5 together. All three models
+   were retrained, and the README, `project-processed.md` and the notebook were updated
+   (RMSE 3.958 → 4.786 on the wider validation set).
+3. ✅ **Housekeeping:** 2.9.

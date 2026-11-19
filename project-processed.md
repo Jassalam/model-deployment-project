@@ -6,10 +6,18 @@ trip-duration model (January 2025 data). The steps follow the "Suggested Workflo
 
 **Status:** all 9 steps and all three stretch tasks are done.
 
-**Current final model:** the baseline settings trained on all 2.5M training rows.
-**Validation RMSE: 3.958 minutes.**
+**Current final model (v2):** the baseline settings trained on all 2.52M training trips,
+using the v2 cleaning rules (1–180 min, 1–65 mph, refund pairs counted once).
+**Validation RMSE: 4.786 minutes.**
 
-**Branch:** `feature/trip-duration-model`. `main` is unchanged.
+The earlier figure of 3.958 only covered trips under an hour, because longer trips had been
+removed from the data. On the same validation trips as v2, the v1 model scores 5.131. See
+"Review Fixes, Step 2" below.
+
+**Branches:**
+
+- `feature/trip-duration-model`: the original work, merged into `main` as PR #1.
+- `fix/review-findings`: the review fixes, in PR #2.
 
 ---
 
@@ -521,6 +529,100 @@ handled in step 2 with retraining.
 
 ---
 
+## Review Fixes, Step 2: Data Fixes and Retraining
+
+**Goal:** fix the two data problems found in review (2.4 and 2.5), retrain, and report
+honest numbers. Item 2.9 (the notebook source) was handled at the same time.
+
+### What was changed
+
+**1. Choosing the new cleaning rules from the data.** For trips of 1–180 min:
+
+- 12,657 trips were slower than 1 mph, many under 0.04 mph (for example 0.01 miles in
+  30 minutes). These are meter or GPS errors.
+- 252 trips were faster than 65 mph, which is impossible on NYC roads.
+- Trips over 60 min had a median speed of **14.8 mph**, so most of them are real.
+
+The new rule: keep trips of **1–180 min** travelling at **1–65 mph**.
+
+**2. Correcting the duplicate finding (2.5).** Across all 20 columns, **0 rows are
+identical**. The 52,533 "duplicates" are **refund or reversal pairs**: the same trip
+recorded again with the fare negated (for example `+7.90` / `−7.90`), mostly with payment
+types 4 (dispute) and 3 (no charge). `clean()` now keeps one row per trip. The errors log
+was corrected.
+
+**3. Code:**
+
+- `src/data.py` applies the new duration and speed rules and removes the extra copies.
+- The new `src/evaluate.py` adds `segment_metrics()`: RMSE and bias overall, RMSE for trips
+  up to and over 60 min, and RMSE by distance range.
+- `src/train.py` and `src/tune.py` log those metrics and the cleaning rules for every run.
+
+**4. Data:** 3,310,437 trips kept (95.3%), including 29,330 trips over an hour.
+
+- train: 2,517,854 trips;
+- validation: 792,583 trips, of which 7,847 are over 60 min.
+
+**5. Retraining.** The old served model was kept as `artifacts/model_v1_60min.skops`, then
+all three models were retrained:
+
+```bash
+uv run python -m src.train                                    # served model (all rows)
+uv run python -m src.train --train-sample 500000 --run-name rf-baseline \
+  --output artifacts/model_baseline.skops
+uv run python -m src.tune --n-trials 25
+```
+
+### Results (v2 validation week)
+
+| Model | Val RMSE | RMSE ≤ 60 min | RMSE > 60 min | Size | Latency |
+|---|---|---|---|---|---|
+| Always predict the mean | 11.278 | — | — | — | — |
+| Baseline, 500k rows | 4.954 | 4.105 | 28.17 | 254 MB | 17.3 ms |
+| Optuna-tuned, 500k rows (same best settings as before) | 4.863 | 4.01 | 27.97 | 1,683 MB | 16.6 ms |
+| **Full data (served)** | **4.786** | 3.965 | 27.23 | 740 MB | 16.0 ms |
+
+Tuning is still not worth it: it is 1.8% better than the baseline for a model about
+7 times larger.
+
+### v1 vs v2 on the same validation trips
+
+| | v1, 1–60 min | v2, served |
+|---|---|---|
+| RMSE, all trips | 5.131 | **4.786** (−6.7%) |
+| RMSE, trips ≤ 60 min | **3.907** | 3.965 (+1.5%) |
+| RMSE, trips > 60 min | 33.65 | **27.23** |
+| RMSE, trips of 20–100 mi | 18.11 | **13.43** |
+| Highest prediction | 57.0 | 125.1 |
+
+Example requests to the new API: the sample request gives **17.24 min**, JFK → Times
+Square gives **52.36 min**, and a 100-mile trip gives **118.69 min** (v1 returned an
+impossible 53.5).
+
+**Remaining limitation:** trips over 60 minutes are still underestimated by **about
+20 minutes** on average (`bias_val_gt60min = −20.56`). The current features can't explain
+those delays. Better features are the next step.
+
+### Notebook (2.9)
+
+The generator script had been deleted along with the temporary folder, so the notebook
+is now its own source and was edited directly:
+
+- new cells for the speed check and refund pairs;
+- the MLflow table labels each run v1 or v2, using the cleaning rules the run logged;
+- a new **section 7** compares v1 and v2 on the same trips;
+- updated conclusions.
+
+It was re-run from start to finish with no errors or warnings.
+
+### Tests
+
+4 new tests, for **37 in total, all passing**: long real trips are kept, impossible speeds
+are dropped, refund pairs count as one trip, and the segment metrics are correct. The
+existing cleaning test was updated, because a 61-minute trip is now valid.
+
+---
+
 ## Housekeeping
 
 - **Added to `.gitignore`:**
@@ -536,9 +638,10 @@ handled in step 2 with retraining.
   3. `cf1ba95`: Add pytest suite for data, features, model and API; make model path configurable
   4. `d02306e`: Add Optuna tuning with inner time split; add --output option to training
 - **Model files in `artifacts/` (not committed):**
-  - `model.skops` is the served model (the full-data one);
-  - `model_baseline.skops`, `model_tuned.skops` and `model_fulldata.skops` are kept for
-    comparison.
+  - `model.skops` is the served v2 model;
+  - `model_baseline.skops` and `model_tuned.skops` are the v2 comparison models;
+  - `model_v1_60min.skops` is the previous served model, kept for the v1 vs v2
+    comparison. It was named `model_fulldata.skops` before.
 
   The tuned file is 1.6 GB. You can delete it if disk space matters, because it is also
   stored with its MLflow run.
@@ -549,7 +652,7 @@ handled in step 2 with retraining.
 
 ```bash
 uv sync
-uv run pytest -q                              # 33 tests
+uv run pytest -q                              # 37 tests
 uv run python -m src.train                    # final model: all training rows (downloads data if missing)
 uv run python -m src.tune --n-trials 25       # optional: Optuna search, ~1.5 min
 uv run mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000   # inspect runs
@@ -588,7 +691,8 @@ Everything is then submitted as a pull request from `feature/trip-duration-model
 - [x] **Stretch: comparison.** Tuning gained only 2% for a 7× larger model. Training on
       all the data gained more.
 - [x] **Step 9: README.** Results and answers documented:
-  1. Final model RMSE: **3.958 min** on the Jan 25–31 validation week.
+  1. Final model RMSE: **4.786 min** on the Jan 25–31 validation week, for trips of
+     1–180 min. It was 3.958 under v1 cleaning; see "Review Fixes, Step 2".
   2. What I'd do differently: see below. This matches the README.
 
 ## What I'd Do Differently
