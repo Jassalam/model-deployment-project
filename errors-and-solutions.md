@@ -5,8 +5,10 @@ project, with its cause and the fix. The file has two parts:
 
 - **Part 1:** problems that came up during development. All of them are **resolved**
   unless marked otherwise.
-- **Part 2:** problems found in a later review that the 22 tests did not catch. These are
-  **open**. Each has a proposed solution, but none has been applied yet.
+- **Part 2:** problems found in a later review that the original 22 tests did not catch.
+  The six code bugs are **resolved** on branch `fix/review-findings`, with 11 new tests
+  (33 in total). The two data problems (2.4, 2.5) and the notebook housekeeping item (2.9)
+  are still **open**.
 
 The step-by-step build history is in [project-processed.md](project-processed.md).
 
@@ -23,16 +25,16 @@ The step-by-step build history is in [project-processed.md](project-processed.md
 | 1.7 | pandas deprecation warning for `dt.dayofweek` | Features | ✅ Resolved |
 | 1.8 | Monday unexpectedly faster than other weekdays | Analysis | ✅ Explained |
 | 1.9 | Port 5000 possibly taken by macOS AirPlay | MLflow | ✅ Checked, not an issue |
-| 1.10 | MLflow UI loaded but runs could not be seen | MLflow UI | ⚠️ Fixed by hand; code fix open (see 2.7) |
+| 1.10 | MLflow UI loaded but runs could not be seen | MLflow UI | ✅ Resolved (code fix in 2.7) |
 | 1.11 | API and MLflow stopped working after the session ended | Local servers | ✅ Restart commands documented |
-| 2.1 | Time-zone-aware pickup times give wrong predictions | API / features | ❌ Open, **bug** |
-| 2.2 | Tests and API break when run from another folder | Paths | ❌ Open, **bug** |
-| 2.3 | Default training command overwrites the served model with a worse one | Training | ❌ Open, **bug** |
+| 2.1 | Time-zone-aware pickup times give wrong predictions | API / features | ✅ Resolved |
+| 2.2 | Tests and API break when run from another folder | Paths | ✅ Resolved |
+| 2.3 | Default training command overwrites the served model with a worse one | Training | ✅ Resolved |
 | 2.4 | Trips over 60 min removed, so long trips are underestimated | Data / model | ❌ Open, modelling |
 | 2.5 | 52,533 duplicate rows not removed | Data | ❌ Open, modelling |
-| 2.6 | Date-only pickup time accepted silently as midnight | API validation | ❌ Open |
-| 2.7 | MLflow "model training" label set by hand, not in code | MLflow | ❌ Open |
-| 2.8 | Interrupted download leaves a corrupt data file | Data loading | ❌ Open |
+| 2.6 | Date-only pickup time accepted silently as midnight | API validation | ✅ Resolved |
+| 2.7 | MLflow "model training" label set by hand, not in code | MLflow | ✅ Resolved |
+| 2.8 | Interrupted download leaves a corrupt data file | Data loading | ✅ Resolved |
 | 2.9 | Notebook generator script is not in the repo | Notebook | ❌ Open |
 
 ---
@@ -302,8 +304,8 @@ uv run mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5001
 
 4. Nothing ran on port 5001. That port was only suggested as a fallback.
 
-**Still open:** the label was set by hand and is not in the code, so it will be lost if
-`mlflow.db` is recreated. See **2.7**.
+**Made permanent:** the label is now set in code every time training or tuning connects to
+MLflow, so it survives `mlflow.db` being recreated. See **2.7**.
 
 ---
 
@@ -325,13 +327,21 @@ Stop either one with **Ctrl+C**.
 
 ---
 
-## Part 2: Problems Found in Review (Open)
+## Part 2: Problems Found in Review
 
-All 22 tests pass, but probing edge cases turned up the problems below. Each one lists how
-it was found, its impact, and the proposed solution. **None of these has been applied
-yet.**
+All 22 original tests passed, but probing edge cases turned up the problems below. Each one
+lists how it was found, its impact, and its solution.
+
+- **Resolved** on branch `fix/review-findings`: 2.1, 2.2, 2.3, 2.6, 2.7, 2.8.
+- **Still open:** 2.4 and 2.5, which need retraining, and 2.9.
 
 ### 2.1 Time-zone-aware pickup times give wrong predictions (bug)
+
+> **Status: ✅ Resolved.** Applied as proposed below. Tests:
+> `test_timezone_aware_pickup_converted_to_nyc` (including summer time, UTC-4),
+> `test_utc_conversion_can_change_the_day`, and
+> `test_utc_pickup_is_converted_to_new_york_time` (API). With the real model,
+> `08:30Z` now returns **13.41**, the same as `03:30` New York time.
 
 **How it was found:** sending the same trip with different time formats.
 
@@ -364,6 +374,12 @@ Add tests showing that `08:30Z`, `03:30-05:00` and a naive `03:30` all give hour
 
 ### 2.2 Tests and API break when run from another folder (bug)
 
+> **Status: ✅ Resolved.** A new `src/paths.py` defines `PROJECT_ROOT`, `DATA_DIR`,
+> `ARTIFACTS_DIR` and `MLFLOW_DB`. Data, model, MLflow, tuning and test paths are all
+> built from it. Tests: `test_paths_are_anchored_to_project_root` and
+> `test_paths_unchanged_after_changing_directory`. Running `pytest` from `notebooks/`
+> now passes all 33 tests, and the API finds the model.
+
 **How it was found:** running the tests and the API from `notebooks/` instead of the
 project root.
 
@@ -395,6 +411,12 @@ Apply the same change in `src/data.py`, `src/train.py`, `src/tune.py` and
 ---
 
 ### 2.3 Default training command overwrites the served model with a worse one (bug)
+
+> **Status: ✅ Resolved.** Defaults are now `--train-sample 0` (all rows) and
+> `--run-name rf-fulldata`. The baseline is reproduced with
+> `--train-sample 500000 --run-name rf-baseline --output artifacts/model_baseline.skops`.
+> The README and the process log have been updated. Test:
+> `test_default_training_is_full_data_to_served_path`.
 
 **How it was found:** reviewing the training command's defaults.
 
@@ -471,6 +493,11 @@ test that duplicate rows are removed. Retrain together with 2.4.
 
 ### 2.6 Date-only pickup time accepted silently as midnight
 
+> **Status: ✅ Resolved.** A `field_validator` in `app/schemas.py` rejects a bare
+> `YYYY-MM-DD` value with HTTP 422: *"must include a time, e.g.
+> '2025-01-27T08:30:00'"*. Unix timestamps and full date-times are still accepted.
+> Test: `test_date_without_time_rejected`.
+
 **How it was found:** sending `"tpep_pickup_datetime": "2025-01-27"` returns **200** with
 **10.82 min**, the midnight prediction, instead of an error.
 
@@ -480,6 +507,10 @@ time (return 422 with a clear message), and add a test for it.
 ---
 
 ### 2.7 MLflow "model training" label set by hand, not in code
+
+> **Status: ✅ Resolved.** Applied as proposed below. `setup_mlflow()` also now takes an
+> optional tracking URI, so a test can check it against a temporary database. Test:
+> `test_setup_mlflow_labels_experiment`.
 
 **Follows from:** 1.10.
 
@@ -496,6 +527,11 @@ mlflow.set_experiment_tag("mlflow.experimentKind", "custom_model_development")
 ---
 
 ### 2.8 Interrupted download leaves a corrupt data file
+
+> **Status: ✅ Resolved.** A new `download()` function in `src/data.py` writes to
+> `<file>.parquet.part`, renames it only when the download completes, and always
+> removes a leftover `.part` file. Tests: `test_interrupted_download_leaves_no_file`
+> and `test_successful_download_lands_at_target`.
 
 **How it was found:** reviewing `load_raw()` in `src/data.py`.
 
@@ -529,10 +565,10 @@ simpler.
 
 ---
 
-## Suggested Order for Fixing the Open Problems
+## Order for Fixing the Problems
 
-1. **Code bugs, which leave the model unchanged:** 2.1, 2.2, 2.3, 2.6, 2.7, 2.8. Add a test
-   for each and push to PR #1.
+1. ✅ **Code bugs, which leave the model unchanged:** 2.1, 2.2, 2.3, 2.6, 2.7, 2.8. Done on
+   branch `fix/review-findings`, with 11 new tests (33 in total).
 2. **Data changes, which require retraining:** 2.4 and 2.5 together. Then update the
    RMSE in the README, `project-processed.md` and the notebook.
 3. **Housekeeping:** 2.9.

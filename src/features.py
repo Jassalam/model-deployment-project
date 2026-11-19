@@ -6,6 +6,8 @@ be called before the ride happens (no fare/tip/total leakage).
 
 import pandas as pd
 
+NYC_TZ = "America/New_York"
+
 FEATURES = [
     "PULocationID",
     "DOLocationID",
@@ -23,6 +25,10 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
     passenger_count (may be missing), tpep_pickup_datetime.
     """
     pickup = pd.to_datetime(df["tpep_pickup_datetime"])
+    # Training data is naive New York local time. Convert zone-aware inputs
+    # (e.g. "...Z" or Unix timestamps) to NYC time so hour/day match training.
+    if pickup.dt.tz is not None:
+        pickup = pickup.dt.tz_convert(NYC_TZ).dt.tz_localize(None)
     out = pd.DataFrame(
         {
             "PULocationID": df["PULocationID"].astype("int32"),

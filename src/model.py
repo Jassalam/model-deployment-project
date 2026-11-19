@@ -11,8 +11,9 @@ import skops.io as sio
 from sklearn.ensemble import RandomForestRegressor
 
 from src.features import prepare_features
+from src.paths import ARTIFACTS_DIR
 
-DEFAULT_MODEL_PATH = Path("artifacts/model.skops")
+DEFAULT_MODEL_PATH = ARTIFACTS_DIR / "model.skops"
 
 # skops refuses to load types it doesn't know are safe. A random forest only
 # needs sklearn's Tree type; anything else in the file is rejected.

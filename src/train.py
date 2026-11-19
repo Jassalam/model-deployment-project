@@ -1,8 +1,12 @@
 """Train a RandomForestRegressor for trip duration and log the run to MLflow.
 
 Usage:
+    # Final model: all training rows, saved to artifacts/model.skops (the file the API serves)
     uv run python -m src.train
-    uv run python -m src.train --n-estimators 100 --max-depth 25 --train-sample 1000000
+
+    # Baseline from the write-up: 500k-row sample, saved separately so it can't replace the served model
+    uv run python -m src.train --train-sample 500000 --run-name rf-baseline \
+        --output artifacts/model_baseline.skops
 """
 
 import os
@@ -22,8 +26,9 @@ from sklearn.metrics import root_mean_squared_error  # noqa: E402
 from src.data import clean, load_raw, split  # noqa: E402
 from src.features import FEATURES, prepare_features  # noqa: E402
 from src.model import DEFAULT_MODEL_PATH  # noqa: E402
+from src.paths import MLFLOW_DB  # noqa: E402
 
-TRACKING_URI = "sqlite:///mlflow.db"
+TRACKING_URI = f"sqlite:///{MLFLOW_DB}"
 EXPERIMENT = "nyc-taxi-duration"
 SEED = 42
 
@@ -57,9 +62,14 @@ def log_final_model(model: RandomForestRegressor, path=DEFAULT_MODEL_PATH) -> No
                     "feature_importances.json")
 
 
-def setup_mlflow() -> None:
-    mlflow.set_tracking_uri(TRACKING_URI)
+# MLflow 3's UI can show an untyped experiment in its GenAI "Traces" view, hiding the runs.
+EXPERIMENT_KIND = {"mlflow.experimentKind": "custom_model_development"}
+
+
+def setup_mlflow(tracking_uri: str = TRACKING_URI) -> None:
+    mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(EXPERIMENT)
+    mlflow.set_experiment_tags(EXPERIMENT_KIND)
 
 
 @click.command()
@@ -68,9 +78,9 @@ def setup_mlflow() -> None:
 @click.option("--min-samples-leaf", default=5, show_default=True)
 @click.option("--max-features", default=1.0, show_default=True,
               help="Fraction of features tried at each split.")
-@click.option("--train-sample", default=500_000, show_default=True,
-              help="Rows sampled from the training split (RF is slow on all 2.5M).")
-@click.option("--run-name", default="rf-baseline", show_default=True)
+@click.option("--train-sample", default=0, show_default=True,
+              help="Rows sampled from the training split; 0 = all rows (the final model).")
+@click.option("--run-name", default="rf-fulldata", show_default=True)
 @click.option("--output", default=str(DEFAULT_MODEL_PATH), show_default=True,
               type=click.Path(path_type=Path), help="Where to save the trained model.")
 def main(n_estimators, max_depth, min_samples_leaf, max_features, train_sample, run_name, output):

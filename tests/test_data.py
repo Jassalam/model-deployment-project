@@ -40,3 +40,38 @@ def test_split_is_by_time_with_no_overlap(trips):
     train, val = split(pd.concat([early, late], ignore_index=True))
     assert len(train) == len(early) and len(val) == len(late)
     assert train["tpep_pickup_datetime"].max() < SPLIT_DATE <= val["tpep_pickup_datetime"].min()
+
+
+# --- Review fix 2.8: safe download --------------------------------------------
+
+import urllib.request  # noqa: E402
+
+import pytest  # noqa: E402
+
+from src.data import download  # noqa: E402
+
+
+def test_interrupted_download_leaves_no_file(monkeypatch, tmp_path):
+    def broken(url, filename):
+        with open(filename, "wb") as f:
+            f.write(b"PAR1 truncated...")
+        raise ConnectionResetError("connection dropped")
+
+    monkeypatch.setattr(urllib.request, "urlretrieve", broken)
+    target = tmp_path / "data" / "trips.parquet"
+    with pytest.raises(ConnectionResetError):
+        download(target, url="http://example.invalid/trips.parquet")
+    assert not target.exists()
+    assert list(target.parent.iterdir()) == []  # no leftover .part file
+
+
+def test_successful_download_lands_at_target(monkeypatch, tmp_path):
+    def ok(url, filename):
+        with open(filename, "wb") as f:
+            f.write(b"complete file")
+
+    monkeypatch.setattr(urllib.request, "urlretrieve", ok)
+    target = tmp_path / "trips.parquet"
+    download(target, url="http://example.invalid/trips.parquet")
+    assert target.read_bytes() == b"complete file"
+    assert [p.name for p in tmp_path.iterdir()] == ["trips.parquet"]

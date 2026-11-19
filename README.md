@@ -27,10 +27,11 @@ flowchart LR
 |---|---|
 | [**Project Description**](project-description.md) | The assignment tasks, suggested workflow, repository layout, and stretch goals. |
 | [**Process Log**](project-processed.md) | Every step taken, with commands, decisions, problems hit and results. |
+| [**Errors and Solutions**](errors-and-solutions.md) | Every error and unexpected result, its cause, and how it was fixed. |
 | [**notebooks/01_eda.ipynb**](notebooks/01_eda.ipynb) | EDA (data quality, cleaning rules, drivers of duration, leakage check, MLK Day finding) and the model comparison read from MLflow. |
 | [**src/**](src/) | Data loading and cleaning (`data.py`), shared features (`features.py`), model loading (`model.py`), training (`train.py`), Optuna tuning (`tune.py`). |
 | [**app/**](app/) | FastAPI app (`main.py`) and request/response schemas (`schemas.py`). |
-| [**tests/**](tests/) | 22 pytest tests for the data, features, model and API. |
+| [**tests/**](tests/) | 33 pytest tests for the data, features, model, API, paths and training defaults. |
 | [**sample-request.json**](sample-request.json) | An example `/predict` request body. |
 
 ### Additional Folders and Files
@@ -206,7 +207,7 @@ Once you have implemented the project code, a typical local workflow looks like 
    and the data downloads automatically if it is missing.
 
    ```bash
-   uv run python -m src.train --train-sample 0   # final model: all training rows, saved to artifacts/model.skops
+   uv run python -m src.train                    # final model: all training rows, saved to artifacts/model.skops
    uv run python -m src.tune --n-trials 25       # optional: Optuna search (~1.5 min)
    uv run pytest -q                              # run the tests
    ```

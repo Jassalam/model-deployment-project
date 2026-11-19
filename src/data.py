@@ -1,11 +1,14 @@
 """Loading, cleaning and splitting the January 2025 Yellow Taxi data."""
 
+import urllib.request
 from pathlib import Path
 
 import pandas as pd
 
+from src.paths import DATA_DIR
+
 DATA_URL = "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2025-01.parquet"
-DATA_PATH = Path("data/yellow_tripdata_2025-01.parquet")
+DATA_PATH = DATA_DIR / "yellow_tripdata_2025-01.parquet"
 
 MIN_DURATION, MAX_DURATION = 1, 60  # minutes
 MAX_DISTANCE = 100  # miles
@@ -21,12 +24,24 @@ RAW_COLUMNS = [
 ]
 
 
+def download(path: Path = DATA_PATH, url: str = DATA_URL) -> None:
+    """Download to a temporary .part file and rename only when complete.
+
+    An interrupted download then leaves no file at `path`, so the next run
+    retries instead of failing on a truncated parquet file.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".part")
+    try:
+        urllib.request.urlretrieve(url, tmp)
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def load_raw(path: Path = DATA_PATH) -> pd.DataFrame:
     if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        import urllib.request
-
-        urllib.request.urlretrieve(DATA_URL, path)
+        download(path)
     return pd.read_parquet(path, columns=RAW_COLUMNS)
 
 

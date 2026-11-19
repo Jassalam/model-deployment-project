@@ -120,6 +120,11 @@ The code is in [src/train.py](src/train.py).
 uv run python -m src.train
 ```
 
+> **Note (changed later):** at this stage the command's default was a 500,000-row sample.
+> Since the review fixes, the plain command trains the **final full-data model** instead
+> (see "Review Fixes" below). To reproduce this baseline now, run:
+> `uv run python -m src.train --train-sample 500000 --run-name rf-baseline --output artifacts/model_baseline.skops`
+
 | Parameter | Value | Reason |
 |---|---|---|
 | `n_estimators` | 50 | Enough trees for a stable baseline |
@@ -477,6 +482,45 @@ models are unaffected, and all 22 tests still pass.
 
 ---
 
+## Review Fixes, Step 1: Code Bugs
+
+**Goal:** fix the six code problems found in review, without retraining the model. Each
+problem is described in full in [errors-and-solutions.md](errors-and-solutions.md).
+
+**Branch:** `fix/review-findings`, created from `main` after PR #1 was merged.
+
+| Item | Problem | Fix | Files |
+|---|---|---|---|
+| 2.1 | UTC or other time-zone-aware pickup times were read as New York time | Convert time-zone-aware times to `America/New_York` before taking the hour and day | `src/features.py` |
+| 2.2 | Paths depended on the folder you ran from | New `src/paths.py` with `PROJECT_ROOT`; data, model, MLflow and test paths built from it | `src/paths.py`, `src/data.py`, `src/model.py`, `src/train.py`, `src/tune.py`, `tests/test_api.py` |
+| 2.3 | The plain training command overwrote the served model with the baseline | Defaults are now `--train-sample 0` and `--run-name rf-fulldata`; the baseline needs explicit options | `src/train.py` |
+| 2.6 | A date with no time was accepted as midnight | Validator returns 422: "must include a time" | `app/schemas.py` |
+| 2.7 | MLflow "model training" label only set by hand | `setup_mlflow()` sets `mlflow.experimentKind = custom_model_development` | `src/train.py` |
+| 2.8 | An interrupted download left a corrupt data file | Download to a `.part` file and rename only when complete | `src/data.py` |
+
+**Tests:** 11 new tests, for **33 in total, all passing**.
+
+- To make sure the new tests really detect the bugs, the time-zone and date-only fixes were
+  undone temporarily. Four tests failed, and all 33 passed again once the fixes were
+  restored.
+- The end-to-end API time-zone test still passed without the fix, because the tiny test
+  model barely uses the hour. The feature-level tests are what actually catch that bug.
+
+**Checked end to end with the real model, running from `notebooks/`:**
+
+| Request `tpep_pickup_datetime` | Before | After |
+|---|---|---|
+| `2025-01-27T08:30:00Z` (= 03:30 New York time) | 16.63 ❌ | **13.41** ✅ |
+| `1737966600` (Unix timestamp, same moment) | 16.63 ❌ | **13.41** ✅ |
+| `2025-01-27T03:30:00` (New York local time) | 13.41 | 13.41 |
+| `2025-01-27` (no time) | 200, 10.82 ❌ | **422** ✅ |
+| `pytest` run from `notebooks/` | crashed ❌ | **33 passed** ✅ |
+
+**Not changed yet:** the model itself. Items 2.4 and 2.5 change the training data, and are
+handled in step 2 with retraining.
+
+---
+
 ## Housekeeping
 
 - **Added to `.gitignore`:**
@@ -505,8 +549,8 @@ models are unaffected, and all 22 tests still pass.
 
 ```bash
 uv sync
-uv run pytest -q                              # 22 tests
-uv run python -m src.train --train-sample 0   # final model: all training rows (downloads data if missing)
+uv run pytest -q                              # 33 tests
+uv run python -m src.train                    # final model: all training rows (downloads data if missing)
 uv run python -m src.tune --n-trials 25       # optional: Optuna search, ~1.5 min
 uv run mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000   # inspect runs
 uv run uvicorn app.main:app --port 8000       # serve the model

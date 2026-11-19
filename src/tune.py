@@ -14,7 +14,6 @@ import os
 os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
 
 import time  # noqa: E402
-from pathlib import Path  # noqa: E402
 
 import click  # noqa: E402
 import mlflow  # noqa: E402
@@ -23,10 +22,11 @@ import pandas as pd  # noqa: E402
 
 from src.data import clean, load_raw, split  # noqa: E402
 from src.features import FEATURES, prepare_features  # noqa: E402
+from src.paths import ARTIFACTS_DIR  # noqa: E402
 from src.train import SEED, fit_and_score, log_final_model, setup_mlflow  # noqa: E402
 
 INNER_SPLIT_DATE = pd.Timestamp("2025-01-18")
-TUNED_MODEL_PATH = Path("artifacts/model_tuned.skops")
+TUNED_MODEL_PATH = ARTIFACTS_DIR / "model_tuned.skops"
 
 
 def search_space(trial: optuna.Trial) -> dict:

@@ -1,12 +1,12 @@
 import json
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from src.paths import PROJECT_ROOT
 
-SAMPLE = json.loads(Path("sample-request.json").read_text())
+SAMPLE = json.loads((PROJECT_ROOT / "sample-request.json").read_text())
 
 
 @pytest.fixture
@@ -50,3 +50,27 @@ def test_invalid_input_rejected(client, field, value):
 def test_missing_required_field_rejected(client):
     payload = {k: v for k, v in SAMPLE.items() if k != "trip_distance"}
     assert client.post("/predict", json=payload).status_code == 422
+
+
+# --- Review fix 2.1: time zones -------------------------------------------------
+
+def test_utc_pickup_is_converted_to_new_york_time(client):
+    """08:30 UTC is 03:30 in New York (EST, UTC-5), so both must predict the same."""
+    def pred(ts):
+        r = client.post("/predict", json={**SAMPLE, "tpep_pickup_datetime": ts})
+        assert r.status_code == 200
+        return r.json()["duration_minutes"]
+
+    nyc_local = pred("2025-01-27T03:30:00")
+    assert pred("2025-01-27T08:30:00Z") == nyc_local
+    assert pred("2025-01-27T03:30:00-05:00") == nyc_local
+    assert pred(1737966600) == nyc_local  # Unix timestamp for 2025-01-27 08:30 UTC
+
+
+# --- Review fix 2.6: date-only input -------------------------------------------
+
+@pytest.mark.parametrize("value", ["2025-01-27", " 2025-01-27 "])
+def test_date_without_time_rejected(client, value):
+    r = client.post("/predict", json={**SAMPLE, "tpep_pickup_datetime": value})
+    assert r.status_code == 422
+    assert "must include a time" in r.json()["detail"][0]["msg"]
